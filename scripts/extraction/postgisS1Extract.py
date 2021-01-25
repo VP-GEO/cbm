@@ -27,7 +27,7 @@ import download_with_boto3 as dwb
 def main():
     files = get_file_list()
     try:
-        extract()
+        extract(files)
     finally:
         remove_files(files)
     
@@ -54,7 +54,8 @@ def get_file_list():
         And status ='ingested'
         And card='bs' order by obstime asc limit 1
         """
-        
+    updateStatusSql = """update dias_catalogue set status='{}', {} = current_timestamp where id = {} and status = '{}'"""
+    
     try:
         incurs.execute(imagesql.format(
             dbconfig['tables']['aoi_table'],
@@ -64,11 +65,15 @@ def get_file_list():
         if not result:
             print("No images with status 'ingested' found")
             inconn.close()
-            #sys.exit(1)
+            sys.exit(1)
         else:
+            oid = result[0]
             reference = result[1]
             file_list = [f'data/{reference}_VV.img', f'data/{reference}_VH.img', 
                          f'data/{reference}_VV.hdr', f'data/{reference}_VH.hdr']
+        
+        incurs.execute(updateStatusSql.format('inprogress', 'time_inprogress', oid, 'ingested'))
+        inconn.commit()
             
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
@@ -83,9 +88,15 @@ def remove_files(files):
     for file in files:
         if os.path.exists(file):
             os.remove(file)
+            print(f"Removed {file}")
+        else:
+            print(f"Did not find {file} to remove")
  
-def extract():
+def extract(files):
     start = time.time()
+    
+    reference = files[0].replace('data/', '').replace('_VV.img', '')
+    
     # Rev 1.1. configuration parsing from json
     with open('s3_config.json', 'r') as f:
         s3config = json.load(f)
@@ -124,15 +135,15 @@ def extract():
         inconn.close()
         #sys.exit(1)
     
-    print("Parcel srid = ", srid)
+    #print("Parcel srid = ", srid)
     
     # Get the first image records that is not yet processed
     imagesql = """
         SELECT id, reference, obstime from dias_catalogue, {}
         WHERE footprint && wkb_geometry and {} = '{}'
         And obstime between '{}' and '{}'
-        And status ='ingested'
-        And card='bs' order by obstime asc limit 1
+        And reference = '{}'
+        And card='bs' order by id desc limit 1
         """
     
     updateSql = """
@@ -145,19 +156,17 @@ def extract():
         incurs.execute(imagesql.format(
             dbconfig['tables']['aoi_table'],
             dbconfig['args']['aoi_field'], dbconfig['args']['name'],
-            dbconfig['args']['startdate'], dbconfig['args']['enddate']))
+            dbconfig['args']['startdate'], dbconfig['args']['enddate'], reference))
         result = incurs.fetchone()
         if not result:
-            print("No images with status 'ingested' found")
+            print("No images with reference found")
             inconn.close()
             #sys.exit(1)
         else:
             oid = result[0]
             reference = result[1]
             obstime = result[2]
-        # Fails if this record is changed in the meantime
-        incurs.execute(updateStatusSql.format('inprogress', 'time_inprogress', oid, 'ingested'))
-        inconn.commit()
+
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
         inconn.close()
@@ -214,6 +223,7 @@ def extract():
         inconn.commit()
         incurs.close()
         inconn.close()
+        return
         #sys.exit(1)
     
     s3path = s3path.replace('.img', '.hdr')
@@ -225,13 +235,14 @@ def extract():
         inconn.commit()
         incurs.close()
         inconn.close()
+        return
         #sys.exit(1)
     else:
         # Only if the header file is present can we open the image to check its projection
         with rasterio.open(fpath.replace('hdr', 'img')) as src:
             outsrid = src.crs.to_epsg()
     
-    print('Out SRID: ', outsrid)
+    #print('Out SRID: ', outsrid)
     
     # CREODIAS:
     s3path = "Sentinel-1/SAR/CARD-BS/{}/{}/{}.data/Gamma0_VH.img".format(
@@ -247,6 +258,7 @@ def extract():
         inconn.commit()
         incurs.close()
         inconn.close()
+        return
         #sys.exit(1)
     
     s3path = s3path.replace('.img', '.hdr')
@@ -258,6 +270,7 @@ def extract():
         inconn.commit()
         incurs.close()
         inconn.close()
+        return
         #sys.exit(1)
     
     
@@ -375,6 +388,8 @@ def extract():
     
     incurs = inconn.cursor()
     
+    updateStatusSql = """update dias_catalogue set status='{}', {} = current_timestamp where id = {} and status = '{}'"""
+    
     try:
         incurs.execute(updateStatusSql.format('extracted', 'time_extracted', oid, 'inprogress'))
         inconn.commit()
@@ -386,19 +401,7 @@ def extract():
     
     incurs.close()
     inconn.close()
-    '''
-    fpath = 'data/{}_VV.img'.format(reference)
-    
-    if os.path.exists(fpath):
-        os.remove(fpath)
-        os.remove(fpath.replace('.img', '.hdr'))
-    
-    fpath = 'data/{}_VH.img'.format(reference)
-    
-    if os.path.exists(fpath):
-        os.remove(fpath)
-        os.remove(fpath.replace('.img', '.hdr'))
-    '''
+
     print("Total time required for {} features and {} bands: {} seconds".format(
         nrows['VV'], len(bands), time.time() - start))
 
