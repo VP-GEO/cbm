@@ -106,11 +106,9 @@ def get_file_info():
         WHERE footprint && wkb_geometry and {} = '{}'
         And obstime between '{}' and '{}'
         And status ='ingested' and card='s2' ORDER by obstime asc limit 1
-        """
-    
-    updateSql = """
-        UPDATE dias_catalogue set status='{}'
-        WHERE id = {} and status = '{}'"""
+        """       
+        
+    updateStatusSql = """update dias_catalogue set status='{}', {} = current_timestamp where id = {} and status = '{}'"""        
     
     try:
         incurs.execute(imagesql.format(
@@ -127,7 +125,7 @@ def get_file_info():
             reference = result[1]
             #obstime = result[2]
         # Fails if this record is changed in the meantime
-        incurs.execute(updateSql.format('inprogress', oid, 'ingested'))
+        incurs.execute(updateStatusSql.format('inprogress', 'time_inprogress', oid, 'ingested'))
         inconn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
@@ -138,6 +136,7 @@ def get_file_info():
     full_tstamp = reference.split('_')[2]
             
     selection = {'B4': '{}/{}_{}_{}_{}.jp2'.format('R10m', mgrs_tile, full_tstamp, 'B04', '10m'),
+                 'B7': '{}/{}_{}_{}_{}.jp2'.format('R20m', mgrs_tile, full_tstamp, 'B07', '20m'),
                  'B8': '{}/{}_{}_{}_{}.jp2'.format('R10m', mgrs_tile, full_tstamp, 'B08', '10m'),
                  'SC': '{}/{}_{}_{}_{}.jp2'.format('R20m', mgrs_tile, full_tstamp, 'SCL', '20m')
                  }      
@@ -162,6 +161,8 @@ def remove_files(files):
 
 def extract(reference, selection, oid, srid):
 
+    print(f"Running postgisS2Extract for {reference}")
+    
     parcelcountsql = """
         SELECT count(es.ogc_fid)
         FROM {} es, dias_catalogue dias, {} aoi
@@ -371,8 +372,10 @@ def extract(reference, selection, oid, srid):
     
     incurs = inconn.cursor()
     
+    updateStatusSql = """update dias_catalogue set status='{}', {} = current_timestamp where id = {} and status = '{}'"""    
+    
     try:
-        incurs.execute(updateSql.format('extracted', oid, 'inprogress'))
+        incurs.execute(updateStatusSql.format('extracted', 'time_extracted', oid, 'inprogress'))
         inconn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
