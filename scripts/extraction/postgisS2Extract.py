@@ -192,7 +192,7 @@ def extract(reference, selection, oid, srid):
         inconn.commit()
         incurs.close()
         inconn.close()
-        sys.exit(1)
+        #sys.exit(1)
     
     # Copy input data from S3 to local disk
     # SOBLOO
@@ -220,7 +220,7 @@ def extract(reference, selection, oid, srid):
         inconn.commit()
         incurs.close()
         inconn.close()
-        sys.exit(1)
+        #sys.exit(1)
     
     # We want 3 image files only, e.g. to create NDVI and have some idea about local image quality
     # SOBLOO does not produce 10 m L2A bands and only B8A (not B08)!
@@ -252,7 +252,8 @@ def extract(reference, selection, oid, srid):
             inconn.commit()
             incurs.close()
             inconn.close()
-            sys.exit(1)
+            return
+            #sys.exit(1)
     
     
     # Get the parcel polygon in this image' footprint
@@ -267,7 +268,7 @@ def extract(reference, selection, oid, srid):
     outconn = psycopg2.connect(connString)
     if not outconn:
         print("No out connection established")
-        sys.exit(1)
+        #sys.exit(1)
     
     # Open a named cursor
     incurs = inconn.cursor(name='fetch_image_coverage',
